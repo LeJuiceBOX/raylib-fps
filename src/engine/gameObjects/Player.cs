@@ -35,78 +35,17 @@ namespace PhrawgEngine
         }
         private Vector3 _spawnPosition = new Vector3(0, 128f, 0);
 
-        // ---- Movement constants -------------------------------------------------
+        // ---- Movement config ----------------------------------------------------
 
-        /// <summary>Maximum horizontal walk speed (Source: sv_maxspeed 320 HU/s).</summary>
-        public float MaxSpeed = 320f;
-
-        /// <summary>Maximum horizontal sprint speed while Shift is held.</summary>
-        public float SprintSpeed = 520f;
-
-        /// <summary>Ground acceleration (Source: sv_accelerate 10).</summary>
-        public float Acceleration = 10f;
-
-        /// <summary>Air-strafing acceleration (Source CS2: sv_airaccelerate 10).</summary>
-        public float AirAcceleration = 1f;
-
-        /// <summary>Friction applied when grounded (Source: sv_friction 4, raised for snappier feel).</summary>
-        public float Friction = 6f;
-
-        /// <summary>Stop-speed floor used during friction deceleration (Source: sv_stopspeed 100).</summary>
-        public float StopSpeed = 75f;
-
-        /// <summary>Upward velocity applied on jump (Source: ~302 HU/s).</summary>
-        public float JumpSpeed = 301.993f;
-
-        /// <summary>
-        /// Manual gravity in HU/s².  Applied to the vertical velocity each air frame.
-        /// CharacterVirtual's internal gravity is set to zero so they don't stack.
-        /// </summary>
-        public float Gravity = 800f;
-
-        // ---- Stair / floor sticking --------------------------------------------
-
-        /// <summary>
-        /// Maximum height in HU that the character can step up onto.
-        /// Standard Source stair step is 18 HU.
-        /// </summary>
-        public float StairStepHeight = 18f;
-
-        /// <summary>
-        /// Distance below the current position the character will snap down to stay
-        /// in contact with the floor when walking over a small step down or slope edge.
-        /// Typically half of <see cref="StairStepHeight"/>.
-        /// </summary>
-        public float FloorSnapDistance = 9f;
-
-        // ---- Camera ------------------------------------------------------------
-
-        /// <summary>Eye height above the body origin in HU.</summary>
-        public float EyeHeight = 64f;
-
-        /// <summary>Mouse look sensitivity in radians per pixel.</summary>
-        public float MouseSensitivity = 0.003f;
-
-        // ---- Capsule collider --------------------------------------------------
-
-        /// <summary>
-        /// Half-height of the cylindrical section of the capsule in HU.
-        /// Combined with <see cref="CapsuleRadius"/>, total height = 2*(halfHeight+radius).
-        /// Defaults give a 72 HU tall, 32 HU wide hull matching the Source player.
-        /// </summary>
-        public float CapsuleHalfHeight = 20f;
-
-        /// <summary>Radius of the capsule end-spheres in HU (half of player width).</summary>
-        public float CapsuleRadius = 16f;
+        /// <summary>All tunable movement constants. Change before the first tick.</summary>
+        public PlayerMovementConfig Movement = PlayerMovementConfig.Default;
 
         // ---- Private state -----------------------------------------------------
 
         private CharacterVirtual? _character;
         private Transform?        _transform;
+        private FirstPersonCamera? _camera;
         private bool              _charInitialized = false;
-
-        private float _yaw;
-        private float _pitch;
 
         private float _vx, _vz;   // Horizontal velocity managed by Source movement math.
         private float _vy;         // Vertical velocity managed manually (gravity + jump).
@@ -119,19 +58,19 @@ namespace PhrawgEngine
             _transform          = AddComponent<Transform>();
             _transform.Position = _spawnPosition;
 
-            Raylib.DisableCursor();
+            _camera = AddComponent<FirstPersonCamera>();
+            _camera.EyeHeight        = 64f;
+            _camera.MouseSensitivity = 0.003f;
+            _camera.InitFromCamera();
 
-            // Derive initial look direction from wherever the camera already points.
-            Vector3 dir = Vector3.Normalize(Game.camera.Target - Game.camera.Position);
-            _yaw   = MathF.Atan2(dir.Z, dir.X);
-            _pitch = MathF.Asin(Math.Clamp(dir.Y, -1f, 1f));
+            Raylib.DisableCursor();
         }
 
         private void InitCharacter(PhysicsServer physics)
         {
             // Build a capsule that matches the original box hull (72 H × 32 W HU).
             // CapsuleShape(halfHeightOfCylinder, radius): total height = 2*(H+R).
-            var capsule = new CapsuleShape(CapsuleHalfHeight, CapsuleRadius);
+            var capsule = new CapsuleShape(Movement.CapsuleHalfHeight, Movement.CapsuleRadius);
 
             var settings = new CharacterVirtualSettings
             {
@@ -144,7 +83,7 @@ namespace PhrawgEngine
                 BackFaceMode              = BackFaceMode.IgnoreBackFaces,
                 // Supporting volume: plane at the bottom of the lower sphere.
                 // Jolt convention: Plane(normal, D) where N·x = D → plane at y = -CapsuleRadius.
-                SupportingVolume          = new Plane(Vector3.UnitY, -CapsuleRadius),
+                SupportingVolume          = new Plane(Vector3.UnitY, -Movement.CapsuleRadius),
             };
 
             _character = new CharacterVirtual(
@@ -155,16 +94,16 @@ namespace PhrawgEngine
                 physics.PhysicsSystem);
         }
 
-        public override void Update(float dt, PhysicsServer? physics = null)
+        public override void Update(float dt)
         {
-            // Lazy-init CharacterVirtual on the first tick that has a physics server.
-            if (!_charInitialized && physics != null && _transform != null)
+            // Lazy-init CharacterVirtual on the first physics tick.
+            if (!_charInitialized && _transform != null)
             {
-                InitCharacter(physics);
+                InitCharacter(Game.physicsServer);
                 _charInitialized = true;
             }
 
-            if (_character == null || _transform == null || physics == null) return;
+            if (_character == null || _transform == null || _camera == null) return;
 
             // ----------------------------------------------------------------
             // 0. Inherit collision-corrected velocity from last frame.
@@ -178,12 +117,8 @@ namespace PhrawgEngine
             _vz = postCollision.Z;
 
             // ----------------------------------------------------------------
-            // 1. Mouse look
+            // 1. Mouse look is handled by FirstPersonCamera component.
             // ----------------------------------------------------------------
-            Vector2 mouse = Raylib.GetMouseDelta();
-            _yaw   += mouse.X * MouseSensitivity;
-            _pitch -= mouse.Y * MouseSensitivity;
-            _pitch  = Math.Clamp(_pitch, -1.55f, 1.55f);
 
             // ----------------------------------------------------------------
             // 2. Ground detection — use CharacterVirtual's ground state.
@@ -200,8 +135,8 @@ namespace PhrawgEngine
             // ----------------------------------------------------------------
             // 3. Wish direction (horizontal plane only — pitch doesn't move you).
             // ----------------------------------------------------------------
-            Vector3 fwd   = new(MathF.Cos(_yaw), 0f, MathF.Sin(_yaw));
-            Vector3 right = new(MathF.Sin(_yaw), 0f, -MathF.Cos(_yaw));
+            Vector3 fwd   = _camera.HorizontalForward;
+            Vector3 right = _camera.HorizontalRight;
 
             Vector3 wish = Vector3.Zero;
             if (Raylib.IsKeyDown(KeyboardKey.W)) wish += fwd;
@@ -211,7 +146,7 @@ namespace PhrawgEngine
 
             float wishLen = wish.Length();
             Vector3 wishDir = wishLen > 0f ? wish / wishLen : Vector3.Zero;
-            float maxSpeed  = Raylib.IsKeyDown(KeyboardKey.LeftShift) ? SprintSpeed : MaxSpeed;
+            float maxSpeed  = Raylib.IsKeyDown(KeyboardKey.LeftShift) ? Movement.SprintSpeed : Movement.MaxSpeed;
 
             // ----------------------------------------------------------------
             // 4. Ground movement
@@ -221,14 +156,14 @@ namespace PhrawgEngine
                 if (Raylib.IsKeyDown(KeyboardKey.Space))
                 {
                     // Skip friction on jump frame so bhop preserves horizontal speed.
-                    _vy         = JumpSpeed;
+                    _vy         = Movement.JumpSpeed;
                     _isGrounded = false;
-                    Accelerate(wishDir, maxSpeed, Acceleration, dt);
+                    Accelerate(wishDir, maxSpeed, Movement.Acceleration, dt);
                 }
                 else
                 {
                     ApplyFriction(dt);
-                    Accelerate(wishDir, maxSpeed, Acceleration, dt);
+                    Accelerate(wishDir, maxSpeed, Movement.Acceleration, dt);
                 }
             }
             // ----------------------------------------------------------------
@@ -236,8 +171,8 @@ namespace PhrawgEngine
             // ----------------------------------------------------------------
             else
             {
-                Accelerate(wishDir, maxSpeed, AirAcceleration, dt);
-                _vy -= Gravity * dt;
+                Accelerate(wishDir, maxSpeed, Movement.AirAcceleration, dt);
+                _vy -= Movement.Gravity * dt;
             }
 
             // ----------------------------------------------------------------
@@ -261,28 +196,19 @@ namespace PhrawgEngine
 
             var updateSettings = new ExtendedUpdateSettings
             {
-                WalkStairsStepUp     = new Vector3(0f,  StairStepHeight,   0f),
-                StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f),
+                WalkStairsStepUp     = new Vector3(0f,  Movement.StairStepHeight,   0f),
+                StickToFloorStepDown = new Vector3(0f, -Movement.FloorSnapDistance, 0f),
             };
 
             // ObjectLayer tells CharacterVirtual which layer this character occupies
             // so the physics system's pair filter determines what it can collide with.
-            _character.ExtendedUpdate(dt, updateSettings, PhysicsServer.LayerMoving, physics.PhysicsSystem);
+            _character.ExtendedUpdate(dt, updateSettings, PhysicsServer.LayerMoving, Game.physicsServer.PhysicsSystem);
 
             // Sync authoritative position back into the Transform every frame.
             _transform.Position = _character.Position;
 
-            // ----------------------------------------------------------------
-            // 7. Update camera
-            // ----------------------------------------------------------------
-            Vector3 camFwd = new(
-                MathF.Cos(_pitch) * MathF.Cos(_yaw),
-                MathF.Sin(_pitch),
-                MathF.Cos(_pitch) * MathF.Sin(_yaw));
-
-            Vector3 eye = _transform.Position + Vector3.UnitY * EyeHeight;
-            Game.camera.Position = eye;
-            Game.camera.Target   = eye + camFwd;
+            // Run component updates (including FirstPersonCamera) after position is finalised.
+            base.Update(dt);
         }
 
         // ---- Source movement helpers ------------------------------------------
@@ -292,8 +218,8 @@ namespace PhrawgEngine
             float speed = MathF.Sqrt(_vx * _vx + _vz * _vz);
             if (speed < 0.01f) { _vx = _vz = 0f; return; }
 
-            float control  = speed < StopSpeed ? StopSpeed : speed;
-            float drop     = control * Friction * dt;
+            float control  = speed < Movement.StopSpeed ? Movement.StopSpeed : speed;
+            float drop     = control * Movement.Friction * dt;
             float newSpeed = MathF.Max(speed - drop, 0f) / speed;
 
             _vx *= newSpeed;

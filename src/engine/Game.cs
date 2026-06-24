@@ -43,7 +43,7 @@ namespace PhrawgEngine
                 float dt = Raylib.GetFrameTime();
 
                 physicsServer.Step(dt);
-                workspace.Update(dt, physicsServer);
+                workspace.Update(dt);
 
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Color.DarkGray);
@@ -58,6 +58,7 @@ namespace PhrawgEngine
                 Raylib.EndDrawing();
             }
 
+            workspace.Unload();
             physicsServer.Dispose();
             Raylib.CloseWindow();
         }

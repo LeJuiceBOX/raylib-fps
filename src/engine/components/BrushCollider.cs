@@ -70,6 +70,9 @@ namespace PhrawgEngine
             if (!_initialized) Init(physics);
         }
 
+        /// <inheritdoc/>
+        public override void Unload() => Destroy();
+
         /// <summary>Removes and destroys the static body from the physics world.</summary>
         public void Destroy()
         {

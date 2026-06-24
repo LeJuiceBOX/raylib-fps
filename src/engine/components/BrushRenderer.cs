@@ -105,8 +105,8 @@ namespace PhrawgEngine
                 Raylib.DrawModel(model, Vector3.Zero, 1f, Color.White);
         }
 
-        /// <summary>Unloads all GPU resources. Call when the owning object is destroyed.</summary>
-        public void Unload()
+        /// <summary>Unloads all GPU resources. Called automatically when the owning object is destroyed.</summary>
+        public override void Unload()
         {
             foreach (var model in _models) Raylib.UnloadModel(model);
             foreach (var tex in _ownedTextures) Raylib.UnloadTexture(tex);

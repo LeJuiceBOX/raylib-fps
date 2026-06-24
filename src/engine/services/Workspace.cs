@@ -12,10 +12,17 @@ namespace PhrawgEngine
             return inst;
         }
 
-        public void Update(float dt, PhysicsServer? physics = null)
+        public void Update(float dt)
         {
             foreach (GameObject obj in objects)
-                obj.Update(dt, physics);
+                obj.Update(dt);
+        }
+
+        public void Unload()
+        {
+            foreach (GameObject obj in objects)
+                obj.Unload();
+            objects.Clear();
         }
 
         public void Draw3D()

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Numerics;
 
 namespace MapViewer;
@@ -41,18 +42,11 @@ public static class BrushGeometry
         var rings = new List<List<Vector3>>(n);
         for (int i = 0; i < n; i++) rings.Add(new List<Vector3>());
 
-        // Intersect every triple of planes; keep only points that lie on the brush surface.
-        for (int i = 0; i < n; i++)
-        for (int j = i + 1; j < n; j++)
-        for (int k = j + 1; k < n; k++)
-        {
-            if (!IntersectPlanes(faces[i], faces[j], faces[k], out var p)) continue;
-            if (PointOutsideBrush(faces, p)) continue;
-
+        var solvedVerts = SolveBrushVerticesZup(brush);
+        foreach (var p in solvedVerts)
             for (int f = 0; f < n; f++)
                 if (MathF.Abs(Vector3.Dot(faces[f].Normal, p) - faces[f].Dist) <= Epsilon)
                     AddUnique(rings[f], p);
-        }
 
         var polys = new List<Polygon>(n);
         for (int i = 0; i < n; i++)
@@ -89,6 +83,9 @@ public static class BrushGeometry
     /// feeding directly into a convex hull collision shape.
     /// </summary>
     public static List<Vector3> GetHullVertices(MapBrush brush)
+        => SolveBrushVerticesZup(brush).Select(Face.ToYup).ToList();
+
+    private static List<Vector3> SolveBrushVerticesZup(MapBrush brush)
     {
         var faces = brush.Faces;
         int n = faces.Count;
@@ -100,7 +97,7 @@ public static class BrushGeometry
         {
             if (!IntersectPlanes(faces[i], faces[j], faces[k], out var p)) continue;
             if (PointOutsideBrush(faces, p)) continue;
-            AddUnique(verts, Face.ToYup(p));
+            AddUnique(verts, p);
         }
 
         return verts;

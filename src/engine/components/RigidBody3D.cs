@@ -107,6 +107,9 @@ namespace PhrawgEngine
             if (_initialized) _bodyInterface.SetAngularVelocity(BodyID, velocity);
         }
 
+        /// <inheritdoc/>
+        public override void Unload() => Destroy();
+
         /// <summary>Removes and destroys the body from the physics world.</summary>
         public void Destroy()
         {

@@ -32,7 +32,7 @@ namespace PhrawgEngine
             _pitch = MathF.Asin(Math.Clamp(dir.Y, -1f, 1f));
         }
 
-        public override void Update(float dt, PhysicsServer? physics = null)
+        public override void Update(float dt)
         {
             // --- Mouse look ---
             Vector2 mouse = Raylib.GetMouseDelta();

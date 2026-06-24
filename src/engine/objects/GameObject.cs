@@ -27,19 +27,23 @@ namespace PhrawgEngine
         /// <summary>
         /// Updates all components. Physics components (<see cref="Rigidbody"/>,
         /// <see cref="BrushCollider"/>) are lazy-initialised on the first tick
-        /// that a <see cref="PhysicsServer"/> is provided.
+        /// via <see cref="Game.physicsServer"/>.
         /// </summary>
-        public virtual void Update(float dt, PhysicsServer? physics = null)
+        public virtual void Update(float dt)
         {
             foreach (var c in components)
             {
-                if (physics != null)
-                {
-                    if (c is Rigidbody rb)       rb.Init_IfNeeded(physics);
-                    if (c is BrushCollider bc)   bc.Init_IfNeeded(physics);
-                }
+                if (c is Rigidbody rb)     rb.Init_IfNeeded(Game.physicsServer);
+                if (c is BrushCollider bc) bc.Init_IfNeeded(Game.physicsServer);
                 c.Update(dt);
             }
+        }
+
+        /// <summary>Called when the object is removed from the workspace. Unloads all components.</summary>
+        public virtual void Unload()
+        {
+            foreach (var c in components)
+                c.Unload();
         }
 
         /// <summary>
