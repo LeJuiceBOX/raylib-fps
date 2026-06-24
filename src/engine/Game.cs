@@ -11,7 +11,7 @@ namespace PhrawgEngine
 
         public void Setup()
         {
-            Raylib.InitWindow(800, 450, "Raylib 3D C#");
+            Raylib.InitWindow(800, 450, "Raylib 3D | PhrawgEngine");
 
             camera = new Camera3D
             {
