@@ -14,10 +14,13 @@ namespace PhrawgEngine
         public PhysicsSystem PhysicsSystem { get; private set; }
         public BodyInterface BodyInterface  => PhysicsSystem.BodyInterface;
 
+        public TempAllocator TempAllocator => _tempAllocator;
+
         private readonly BroadPhaseLayerInterfaceTable      _bpLayerInterface;
         private readonly ObjectLayerPairFilterTable         _objLayerFilter;
         private readonly ObjectVsBroadPhaseLayerFilterTable _objVsBpFilter;
         private readonly JobSystemThreadPool                _jobSystem;
+        private readonly TempAllocatorImpl                  _tempAllocator;
 
         public PhysicsServer(Vector3? gravity = null)
         {
@@ -40,7 +43,8 @@ namespace PhrawgEngine
                 2                   // numObjectLayers
             );
 
-            _jobSystem = new JobSystemThreadPool();
+            _jobSystem     = new JobSystemThreadPool();
+            _tempAllocator = new TempAllocatorImpl(10 * 1024 * 1024);
 
             var settings = new PhysicsSystemSettings
             {
@@ -66,6 +70,7 @@ namespace PhrawgEngine
         {
             PhysicsSystem.Dispose();
             _jobSystem.Dispose();
+            _tempAllocator.Dispose();
             Foundation.Shutdown();
         }
     }

@@ -5,22 +5,23 @@ using System.Numerics;
 namespace PhrawgEngine
 {
     /// <summary>
-    /// A first-person player controller that replicates Source 2 ground movement:
-    /// velocity-based acceleration with per-frame friction, reduced air control,
-    /// and instant-response directional changes on the ground.
-    /// <para>
-    /// All speed values are in world units per second. If your map was built in
-    /// Quake/Hammer units (1 unit ≈ 1 inch), the defaults match Source's
-    /// <c>sv_maxspeed 320</c> and <c>sv_gravity 800</c> tuning.
-    /// </para>
+    /// First-person player controller built on Jolt's <see cref="CharacterVirtual"/>.
+    /// CharacterVirtual is a virtual (non-body) character that does its own shape-cast
+    /// movement each frame, giving instant wall snap (no Baumgarte depenetration) and
+    /// built-in stair-stepping via <c>ExtendedUpdate</c>.
+    ///
+    /// Horizontal movement mirrors Source 2 ground physics: velocity-based acceleration
+    /// with per-frame friction and reduced air control.  Gravity and jumping are managed
+    /// manually so they run in Hammer Units/s rather than relying on Jolt's gravity
+    /// (which would be in m/s²).
     /// </summary>
     public class Player : GameObject
     {
-        // ---- Spawn ----
+        // ---- Spawn ----------------------------------------------------------------
 
         /// <summary>
-        /// World position the player spawns at. Can be set after
-        /// <see cref="Workspace.AddGameObject{T}"/> — the Rigidbody is created on
+        /// World position the player spawns at.  Safe to set after
+        /// <see cref="Workspace.AddGameObject{T}"/> — CharacterVirtual is created on
         /// the first physics tick, so setting this before then is always safe.
         /// </summary>
         public Vector3 SpawnPosition
@@ -29,15 +30,14 @@ namespace PhrawgEngine
             set
             {
                 _spawnPosition = value;
-                // Keep the Transform in sync if Load() has already run.
                 if (_transform != null) _transform.Position = value;
             }
         }
         private Vector3 _spawnPosition = new Vector3(0, 128f, 0);
 
-        // ---- Movement ----
+        // ---- Movement constants -------------------------------------------------
 
-        /// <summary>Maximum horizontal walk speed (Source: sv_maxspeed 320).</summary>
+        /// <summary>Maximum horizontal walk speed (Source: sv_maxspeed 320 HU/s).</summary>
         public float MaxSpeed = 320f;
 
         /// <summary>Maximum horizontal sprint speed while Shift is held.</summary>
@@ -46,75 +46,78 @@ namespace PhrawgEngine
         /// <summary>Ground acceleration (Source: sv_accelerate 10).</summary>
         public float Acceleration = 10f;
 
-        /// <summary>
-        /// Air-strafing acceleration. Kept low to preserve momentum but allow
-        /// steering (Source CS2: sv_airaccelerate 10; classic HL2: 1).
-        /// </summary>
+        /// <summary>Air-strafing acceleration (Source CS2: sv_airaccelerate 10).</summary>
         public float AirAcceleration = 1f;
 
-        /// <summary>Friction applied when grounded (Source: sv_friction 4; raised to 6 for snappier feel).</summary>
+        /// <summary>Friction applied when grounded (Source: sv_friction 4, raised for snappier feel).</summary>
         public float Friction = 6f;
 
-        /// <summary>
-        /// Minimum speed used when computing friction deceleration.
-        /// Lower values stop the player faster at low speeds (Source: sv_stopspeed 100; lowered to 75).
-        /// </summary>
+        /// <summary>Stop-speed floor used during friction deceleration (Source: sv_stopspeed 100).</summary>
         public float StopSpeed = 75f;
 
-        /// <summary>Upward velocity applied on jump (Source classic: 301.993).</summary>
+        /// <summary>Upward velocity applied on jump (Source: ~302 HU/s).</summary>
         public float JumpSpeed = 301.993f;
 
         /// <summary>
-        /// Downward gravity acceleration in world units/s² applied manually.
-        /// Independent of the PhysicsServer gravity so the two do not stack
-        /// (Jolt gravity is disabled for the player body via GravityFactor = 0).
-        /// Source default: 800 HU/s².
+        /// Manual gravity in HU/s².  Applied to the vertical velocity each air frame.
+        /// CharacterVirtual's internal gravity is set to zero so they don't stack.
         /// </summary>
         public float Gravity = 800f;
 
+        // ---- Stair / floor sticking --------------------------------------------
+
         /// <summary>
-        /// Maximum distance below the box bottom that counts as grounded.
-        /// Increase slightly if the player loses ground contact on bumpy geometry.
+        /// Maximum height in HU that the character can step up onto.
+        /// Standard Source stair step is 18 HU.
         /// </summary>
-        public float GroundCheckDistance = 4f;
+        public float StairStepHeight = 18f;
 
-        // ---- Camera ----
+        /// <summary>
+        /// Distance below the current position the character will snap down to stay
+        /// in contact with the floor when walking over a small step down or slope edge.
+        /// Typically half of <see cref="StairStepHeight"/>.
+        /// </summary>
+        public float FloorSnapDistance = 9f;
 
-        /// <summary>Eye height above the body origin in world units (~72 HU).</summary>
+        // ---- Camera ------------------------------------------------------------
+
+        /// <summary>Eye height above the body origin in HU.</summary>
         public float EyeHeight = 64f;
 
         /// <summary>Mouse look sensitivity in radians per pixel.</summary>
         public float MouseSensitivity = 0.003f;
 
-        // ---- Collision shape ----
+        // ---- Capsule collider --------------------------------------------------
 
-        /// <summary>Size of the box collider in world units (Source player hull ≈ 32x72x32 HU).</summary>
-        public Vector3 ColliderSize = new Vector3(32f, 72f, 32f);
+        /// <summary>
+        /// Half-height of the cylindrical section of the capsule in HU.
+        /// Combined with <see cref="CapsuleRadius"/>, total height = 2*(halfHeight+radius).
+        /// Defaults give a 72 HU tall, 32 HU wide hull matching the Source player.
+        /// </summary>
+        public float CapsuleHalfHeight = 20f;
 
-        // ---- Private state ----
+        /// <summary>Radius of the capsule end-spheres in HU (half of player width).</summary>
+        public float CapsuleRadius = 16f;
 
-        private Rigidbody? _rb;
-        private Transform? _transform;
+        // ---- Private state -----------------------------------------------------
+
+        private CharacterVirtual? _character;
+        private Transform?        _transform;
+        private bool              _charInitialized = false;
 
         private float _yaw;
         private float _pitch;
 
-        private float _vx, _vz;  // Horizontal velocity — managed by Source math.
-        private float _vy;        // Vertical velocity — driven manually (gravity + jump).
+        private float _vx, _vz;   // Horizontal velocity managed by Source movement math.
+        private float _vy;         // Vertical velocity managed manually (gravity + jump).
         private bool  _isGrounded;
+
+        // -----------------------------------------------------------------------
 
         public override void Load()
         {
-            _transform = AddComponent<Transform>();
+            _transform          = AddComponent<Transform>();
             _transform.Position = _spawnPosition;
-
-            var shape = AddComponent<RectangleShape>();
-            shape.Size = ColliderSize;
-
-            _rb = AddComponent<Rigidbody>();
-            _rb.GravityFactor = 0f;  // We apply gravity ourselves.
-            _rb.Restitution   = 0f;
-            _rb.Layer         = PhysicsServer.LayerMoving;
 
             Raylib.DisableCursor();
 
@@ -124,24 +127,52 @@ namespace PhrawgEngine
             _pitch = MathF.Asin(Math.Clamp(dir.Y, -1f, 1f));
         }
 
+        private void InitCharacter(PhysicsServer physics)
+        {
+            // Build a capsule that matches the original box hull (72 H × 32 W HU).
+            // CapsuleShape(halfHeightOfCylinder, radius): total height = 2*(H+R).
+            var capsule = new CapsuleShape(CapsuleHalfHeight, CapsuleRadius);
+
+            var settings = new CharacterVirtualSettings
+            {
+                Shape                     = capsule,
+                Up                        = Vector3.UnitY,
+                MaxSlopeAngle             = MathF.PI / 4f,  // 45° max walkable slope
+                CharacterPadding          = 0.02f,           // thin skin to avoid tunnelling
+                PenetrationRecoverySpeed  = 1f,
+                PredictiveContactDistance = 2f,              // HU; look slightly ahead for contacts
+                BackFaceMode              = BackFaceMode.IgnoreBackFaces,
+                // Supporting volume: plane at the bottom of the lower sphere.
+                // Jolt convention: Plane(normal, D) where N·x = D → plane at y = -CapsuleRadius.
+                SupportingVolume          = new Plane(Vector3.UnitY, -CapsuleRadius),
+            };
+
+            _character = new CharacterVirtual(
+                settings,
+                _transform!.Position,
+                Quaternion.Identity,
+                0UL,
+                physics.PhysicsSystem);
+        }
+
         public override void Update(float dt, PhysicsServer? physics = null)
         {
-            // Initialises Rigidbody on the first tick via base.
-            base.Update(dt, physics);
+            // Lazy-init CharacterVirtual on the first tick that has a physics server.
+            if (!_charInitialized && physics != null && _transform != null)
+            {
+                InitCharacter(physics);
+                _charInitialized = true;
+            }
 
-            if (_rb == null || _transform == null) return;
+            if (_character == null || _transform == null || physics == null) return;
 
             // ----------------------------------------------------------------
-            // 0. Inherit Jolt's post-collision horizontal velocity
-            // We set velocity at the end of every frame, but Jolt modifies it
-            // during the physics step when the player hits a wall (zeroing the
-            // component into the surface). Reading it back here means friction
-            // and acceleration run on top of the collision-corrected velocity,
-            // so walls feel solid instead of the player slowly grinding through.
-            // _vy is excluded because we manage gravity/jump ourselves and have
-            // disabled Jolt gravity on this body.
+            // 0. Inherit collision-corrected horizontal velocity from last frame.
+            //    CharacterVirtual clips LinearVelocity to remove the component
+            //    that penetrated a surface, so reading it back here means we
+            //    naturally slide along walls without re-accelerating into them.
             // ----------------------------------------------------------------
-            Vector3 postCollision = _rb.GetVelocity();
+            Vector3 postCollision = _character.LinearVelocity;
             _vx = postCollision.X;
             _vz = postCollision.Z;
 
@@ -154,20 +185,19 @@ namespace PhrawgEngine
             _pitch  = Math.Clamp(_pitch, -1.55f, 1.55f);
 
             // ----------------------------------------------------------------
-            // 2. Ground detection via downward raycast
-            // Ray starts just below the box bottom (avoiding self-hit) and
-            // travels downward. Fraction on the result is distance in world
-            // units along the normalised ray, so we compare it to
-            // GroundCheckDistance directly.
+            // 2. Ground detection — use CharacterVirtual's ground state.
+            //    OnGround      = walkable surface (≤ MaxSlopeAngle).
+            //    OnSteepGround = too steep to walk but still in contact.
+            //    InAir         = nothing below.
             // ----------------------------------------------------------------
-            if (physics != null)
-            {
-                _isGrounded = CastGroundRay(physics);
-                if (_isGrounded && _vy < 0f) _vy = 0f;
-            }
+            var groundState = _character.GroundState;
+            _isGrounded = groundState == GroundState.OnGround
+                       || groundState == GroundState.OnSteepGround;
+
+            if (_isGrounded && _vy < 0f) _vy = 0f;
 
             // ----------------------------------------------------------------
-            // 3. Wish direction (horizontal, yaw only — pitch doesn't affect movement)
+            // 3. Wish direction (horizontal plane only — pitch doesn't move you).
             // ----------------------------------------------------------------
             Vector3 fwd   = new(MathF.Cos(_yaw), 0f, MathF.Sin(_yaw));
             Vector3 right = new(MathF.Sin(_yaw), 0f, -MathF.Cos(_yaw));
@@ -189,15 +219,13 @@ namespace PhrawgEngine
             {
                 if (Raylib.IsKeyDown(KeyboardKey.Space))
                 {
-                    // Jump this frame: skip friction entirely so horizontal speed
-                    // is fully preserved — this is what makes bhop work in Source.
-                    _vy = JumpSpeed;
+                    // Skip friction on jump frame so bhop preserves horizontal speed.
+                    _vy         = JumpSpeed;
                     _isGrounded = false;
                     Accelerate(wishDir, maxSpeed, Acceleration, dt);
                 }
                 else
                 {
-                    // Normal ground frame: friction first, then accelerate.
                     ApplyFriction(dt);
                     Accelerate(wishDir, maxSpeed, Acceleration, dt);
                 }
@@ -212,10 +240,32 @@ namespace PhrawgEngine
             }
 
             // ----------------------------------------------------------------
-            // 6. Push combined velocity into Jolt and lock rotation
+            // 6. Drive CharacterVirtual and step.
+            //
+            //    We pass Vector3.Zero for gravity because we already applied it
+            //    to _vy above — letting CharacterVirtual apply gravity too would
+            //    double it.
+            //
+            //    ExtendedUpdate (vs plain Update) also runs two sub-steps:
+            //      • StickToFloor  — snaps the character down FloorSnapDistance HU
+            //        so they stay grounded over small downward ledges.
+            //      • WalkStairs    — tries stepping up StairStepHeight HU when the
+            //        character is blocked horizontally but clear higher up, giving
+            //        smooth stair climbing without needing an explicit stair mesh.
+            //
+            //    Null filter arguments mean "collide with everything", matching the
+            //    behaviour of NarrowPhaseQuery.CastRay with null filters elsewhere.
             // ----------------------------------------------------------------
-            _rb.SetVelocity(new Vector3(_vx, _vy, _vz));
-            _rb.SetAngularVelocity(Vector3.Zero);
+            _character.LinearVelocity = new Vector3(_vx, _vy, _vz);
+
+            var updateSettings = new ExtendedUpdateSettings();
+            updateSettings.WalkStairsStepUp     = new Vector3(0f,  StairStepHeight,   0f);
+            updateSettings.StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f);
+
+            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings, null, null, null, null, physics.TempAllocator);
+
+            // Sync authoritative position back into the Transform every frame.
+            _transform.Position = _character.Position;
 
             // ----------------------------------------------------------------
             // 7. Update camera
@@ -230,45 +280,8 @@ namespace PhrawgEngine
             Game.camera.Target   = eye + camFwd;
         }
 
-        // ---- Ground detection -----------------------------------------------
+        // ---- Source movement helpers ------------------------------------------
 
-        /// <summary>
-        /// Casts a ray straight down from just below the box bottom.
-        /// <para>
-        /// <see cref="Ray"/> takes a normalised direction; <see cref="RayCastResult.Fraction"/>
-        /// is the hit distance in world units along that direction, so we compare it
-        /// directly to <see cref="GroundCheckDistance"/>.
-        /// </para>
-        /// </summary>
-        private bool CastGroundRay(PhysicsServer physics)
-        {
-            if (_transform == null) return false;
-
-            // Origin is 0.5 units below the box bottom so the ray never intersects
-            // the player's own shape.
-            float halfHeight = ColliderSize.Y / 2f;
-            var origin = new Vector3(
-                _transform.Position.X,
-                _transform.Position.Y - halfHeight - 0.5f,
-                _transform.Position.Z);
-
-            // Ray(position, normalised direction) — direction is straight down.
-            var ray    = new JoltPhysicsSharp.Ray(origin, -Vector3.UnitY);
-            var filter = new ExcludeBodyFilter(_rb!.BodyID);
-
-            bool hit = physics.PhysicsSystem.NarrowPhaseQuery.CastRay(
-                ray, out RayCastResult result,
-                null, null, filter);
-
-            return hit && result.Fraction <= GroundCheckDistance;
-        }
-
-        // ---- Source movement helpers ----------------------------------------
-
-        /// <summary>
-        /// Applies velocity-proportional friction to the horizontal velocity.
-        /// Mirrors Source's PM_Friction exactly.
-        /// </summary>
         private void ApplyFriction(float dt)
         {
             float speed = MathF.Sqrt(_vx * _vx + _vz * _vz);
@@ -282,11 +295,6 @@ namespace PhrawgEngine
             _vz *= newSpeed;
         }
 
-        /// <summary>
-        /// Accelerates toward <paramref name="wishDir"/> up to <paramref name="wishSpeed"/>.
-        /// Mirrors Source's PM_Accelerate — only adds velocity in the wish direction,
-        /// preserving sideways momentum for air-strafing.
-        /// </summary>
         private void Accelerate(Vector3 wishDir, float wishSpeed, float accel, float dt)
         {
             float currentSpeed = _vx * wishDir.X + _vz * wishDir.Z;
@@ -296,20 +304,6 @@ namespace PhrawgEngine
             float accelSpeed = MathF.Min(accel * wishSpeed * dt, addSpeed);
             _vx += accelSpeed * wishDir.X;
             _vz += accelSpeed * wishDir.Z;
-        }
-
-        // ---- Helpers --------------------------------------------------------
-
-        /// <summary>
-        /// Excludes a single body from raycast results so the player's own
-        /// collider is never reported as a ground hit.
-        /// </summary>
-        private sealed class ExcludeBodyFilter : BodyFilter
-        {
-            private readonly BodyID _exclude;
-            public ExcludeBodyFilter(BodyID exclude) => _exclude = exclude;
-            protected override bool ShouldCollide(BodyID bodyID)       => bodyID   != _exclude;
-            protected override bool ShouldCollideLocked(Body body)     => body.ID  != _exclude;
         }
     }
 }
