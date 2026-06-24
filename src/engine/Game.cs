@@ -18,13 +18,22 @@ namespace PhrawgEngine
                 Position   = new Vector3(20.0f, 20.0f, 20.0f),
                 Target     = new Vector3(0.0f, 0.0f, 0.0f),
                 Up         = new Vector3(0.0f, 1.0f, 0.0f),
-                FovY       = 45.0f,
+                FovY       = 85f,
                 Projection = CameraProjection.Perspective
             };
+
+            //var cam = workspace.AddGameObject<FreeCam>();
+            //cam.MoveSpeed = 300f;
+            //cam.MouseSensitivity = 0.002f;
+
+            var player = workspace.AddGameObject<Player>();
+            player.SpawnPosition = new Vector3(0, 600f, 0); // somewhere above the floor 
 
             Raylib.SetTargetFPS(60);
 
             workspace.AddGameObject<TestObject>();
+            var map = workspace.AddGameObject<BrushObject>();
+            map.LoadMap("assets/maps/zs-bunker.map", "assets/textures");
         }
 
         public void Run()
@@ -44,7 +53,7 @@ namespace PhrawgEngine
                 Raylib.EndMode3D();
 
                 workspace.Draw2D();
-                Raylib.DrawText("Welcome to Raylib 3D in C#!", 10, 10, 20, Color.White);
+                Raylib.DrawText("Raylib3D | PhrawgEngine", 10, 10, 20, Color.White);
 
                 Raylib.EndDrawing();
             }
