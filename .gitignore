@@ -1,0 +1,71 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio cache/options
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.sln.docstates
+
+# Build logs
+*.binlog
+*.tlog
+
+# .NET
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+!packages/build/
+
+# Rider / JetBrains
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Raylib / native libs (already shipped via NuGet, don't commit copies)
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+
+# Game assets you may want to ignore (uncomment if generated)
+# assets/temp/
+# *.tmp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coverflow
+coverage/
