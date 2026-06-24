@@ -24,8 +24,7 @@ namespace PhrawgEngine
 
             Raylib.SetTargetFPS(60);
 
-            TestObject d = workspace.AddGameObject<TestObject>();
-            d.GetComponent<RigidbodyComponent>()?.SetVelocity(new Vector3(10f,20f,10f));
+            workspace.AddGameObject<TestObject>();
         }
 
         public void Run()

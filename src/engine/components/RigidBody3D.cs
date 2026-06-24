@@ -3,44 +3,40 @@ using System.Numerics;
 
 namespace PhrawgEngine
 {
-    public class RigidbodyComponent : Component
+    public class Rigidbody : Component
     {
-        public BodyID  BodyID   { get; private set; }
-        public Vector3 Position { get; private set; }
-        public Quaternion Rotation { get; private set; } = Quaternion.Identity;
-
+        public BodyID BodyID { get; private set; }
 
         // Config — set these before calling Init()
         public Vector3 StartVelocity = Vector3.Zero;
-        public Vector3 StartPosition = Vector3.Zero;
-        public Quaternion StartRotation = Quaternion.Identity;
         public ShapeSettings ShapeSettings = new BoxShapeSettings(new Vector3(0.5f, 0.5f, 0.5f));
         public MotionType MotionType = MotionType.Dynamic;
-        public byte       Layer      = PhysicsServer.LayerMoving;
-        public float      Restitution = 0.3f;
-        
-        
+        public byte Layer = PhysicsServer.LayerMoving;
+        public float Restitution = 0.3f;
+
         private BodyInterface _bodyInterface;
         private bool _initialized = false;
 
+        private Transform? _transform;
 
-        /// <summary>Call this after setting config fields.</summary>
         public void Init(PhysicsServer physics)
         {
             _bodyInterface = physics.BodyInterface;
 
+            // Resolve a sibling Transform if present; create one if not.
+            _transform = Owner?.GetComponent<Transform>()
+                         ?? new Transform();
+
             var settings = new BodyCreationSettings(
                 ShapeSettings,
-                new Vector3(StartPosition.X, StartPosition.Y, StartPosition.Z),
-                StartRotation,
+                _transform.Position,
+                _transform.Rotation,
                 MotionType,
                 Layer
             );
             settings.Restitution = Restitution;
 
             BodyID = _bodyInterface.CreateAndAddBody(settings, Activation.Activate);
-            Position = StartPosition;
-            Rotation = StartRotation;
 
             if (StartVelocity != Vector3.Zero)
                 _bodyInterface.SetLinearVelocity(BodyID, StartVelocity);
@@ -50,10 +46,10 @@ namespace PhrawgEngine
 
         public override void Update(float dt)
         {
-            if (!_initialized) return;
+            if (!_initialized || _transform is null) return;
 
-            Position = _bodyInterface.GetPosition(BodyID);  // returns Vector3 directly
-            Rotation = _bodyInterface.GetRotation(BodyID);
+            _transform.Position = _bodyInterface.GetPosition(BodyID);
+            _transform.Rotation = _bodyInterface.GetRotation(BodyID);
         }
 
         internal void Init_IfNeeded(PhysicsServer physics)

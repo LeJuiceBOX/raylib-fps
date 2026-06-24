@@ -4,10 +4,17 @@ using System.Numerics;
 
 namespace PhrawgEngine
 {
-    public class TestObject : GameObject
+    public class TestBlock : GameObject
     {
         private Transform? transform;
         private Rigidbody? rb;
+
+        private Vector3 _size;
+
+        public TestBlock()
+        {
+            
+        }
 
         public override void Load()
         {
@@ -15,9 +22,9 @@ namespace PhrawgEngine
             transform.Position = new Vector3(0, 0, 0);
 
             rb = AddComponent<Rigidbody>();
-            rb.ShapeSettings = new SphereShapeSettings(0.5f);
+            rb.ShapeSettings = new BoxShapeSettings(Vector3.Zero,1f);
             rb.Restitution    = 0.6f;
-            rb.StartVelocity  = new Vector3(5f, 10f, 0f);
+            rb.StartVelocity  = new Vector3(0,0,0);
         }
 
         public override void Draw3D()
