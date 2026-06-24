@@ -167,13 +167,14 @@ namespace PhrawgEngine
             if (_character == null || _transform == null || physics == null) return;
 
             // ----------------------------------------------------------------
-            // 0. Inherit collision-corrected horizontal velocity from last frame.
-            //    CharacterVirtual clips LinearVelocity to remove the component
-            //    that penetrated a surface, so reading it back here means we
-            //    naturally slide along walls without re-accelerating into them.
+            // 0. Inherit collision-corrected velocity from last frame.
+            //    CharacterVirtual clips LinearVelocity against surfaces it hit,
+            //    so reading back all three components handles both wall sliding
+            //    (X/Z zeroed into wall) and ceiling hits (Y zeroed when blocked).
             // ----------------------------------------------------------------
             Vector3 postCollision = _character.LinearVelocity;
             _vx = postCollision.X;
+            _vy = postCollision.Y;
             _vz = postCollision.Z;
 
             // ----------------------------------------------------------------
@@ -264,7 +265,9 @@ namespace PhrawgEngine
                 StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f),
             };
 
-            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings);
+            // ObjectLayer tells CharacterVirtual which layer this character occupies
+            // so the physics system's pair filter determines what it can collide with.
+            _character.ExtendedUpdate(dt, updateSettings, PhysicsServer.LayerMoving, physics.PhysicsSystem);
 
             // Sync authoritative position back into the Transform every frame.
             _transform.Position = _character.Position;
