@@ -10,7 +10,7 @@ namespace PhrawgEngine
 
 
         public abstract void Load();
-        public abstract void Ready();
+        //public abstract void Ready();
         public abstract void Update(float dt);
         public abstract void Draw2D();
         public abstract void Draw3D();
@@ -18,12 +18,12 @@ namespace PhrawgEngine
 
         public T? GetComponent<T>() where T : Component
         {
-            return Components.OfType<T>().FirstOrDefault();
+            return components.OfType<T>().FirstOrDefault();
         }
         public T AddComponent<T>() where T : Component, new()
         {
             T inst = new T();
-            Components.Add(inst);
+            components.Add(inst);
             return inst;
         }
 

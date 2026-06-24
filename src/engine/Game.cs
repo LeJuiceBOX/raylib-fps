@@ -14,7 +14,7 @@ namespace PhrawgEngine
 
             camera = new Camera3D 
             {
-                Position = new Vector3(10.0f, 10.0f, 10.0f),  // Camera location
+                Position = new Vector3(20.0f, 20.0f, 20.0f),  // Camera location
                 Target = new Vector3(0.0f, 0.0f, 0.0f),      // Camera looking at point
                 Up = new Vector3(0.0f, 1.0f, 0.0f),          // Camera up vector (rotation)
                 FovY = 45.0f,                                // Field of View
@@ -24,8 +24,12 @@ namespace PhrawgEngine
             // Lock mouse to screen if you are adding first-person controls later
             // Raylib.DisableCursor();
 
-            Raylib.SetTargetFPS(60);           
+            Raylib.SetTargetFPS(60);     
+        
+            workspace.AddGameObject<TestObject>();
         }
+
+
 
         public void run()
         {
@@ -40,10 +44,12 @@ namespace PhrawgEngine
                 Raylib.BeginMode3D(camera);
 
                 // Do 3d stuff
+                workspace.Draw3D();
 
                 Raylib.EndMode3D();
 
                 // Do 2d stuff
+                workspace.Draw2D();
                 Raylib.DrawText("Welcome to Raylib 3D in C#!", 10, 10, 20, Color.DarkGray);
 
                 Raylib.EndDrawing();
