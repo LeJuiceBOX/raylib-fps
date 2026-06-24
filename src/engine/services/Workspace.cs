@@ -1,3 +1,6 @@
+using JoltPhysicsSharp;
+using Raylib_cs;
+
 namespace PhrawgEngine
 {
     public class Workspace
@@ -10,6 +13,12 @@ namespace PhrawgEngine
             objects.Add(inst);
             inst.Load();
             return inst;
+        }
+
+
+        public List<GameObject> GetGameObjects()
+        {
+            return objects;
         }
 
         public void Update(float dt)

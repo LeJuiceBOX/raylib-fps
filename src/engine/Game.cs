@@ -22,18 +22,18 @@ namespace PhrawgEngine
                 Projection = CameraProjection.Perspective
             };
 
-            //var cam = workspace.AddGameObject<FreeCam>();
-            //cam.MoveSpeed = 300f;
-            //cam.MouseSensitivity = 0.002f;
+            var cam = workspace.AddGameObject<FreeCam>();
+            cam.MoveSpeed = 300f;
+            cam.MouseSensitivity = 0.002f;
 
-            var player = workspace.AddGameObject<Player>();
-            player.SpawnPosition = new Vector3(0, 600f, 0); // somewhere above the floor 
+            //var player = workspace.AddGameObject<Player>();
+            //player.SpawnPosition = new Vector3(0, 600f, 0); // somewhere above the floor 
 
             Raylib.SetTargetFPS(60);
 
             workspace.AddGameObject<TestObject>();
             var map = workspace.AddGameObject<BrushObject>();
-            map.LoadMap("assets/maps/zs-bunker.map", "assets/textures");
+            map.LoadMap("assets/maps/zs-bunker-nowalls.map", "assets/textures");
         }
 
         public void Run()
@@ -45,6 +45,8 @@ namespace PhrawgEngine
                 physicsServer.Step(dt);
                 workspace.Update(dt);
 
+
+
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(Color.DarkGray);
 
@@ -53,7 +55,7 @@ namespace PhrawgEngine
                 Raylib.EndMode3D();
 
                 workspace.Draw2D();
-                Raylib.DrawText("Raylib3D | PhrawgEngine", 10, 10, 20, Color.White);
+                //Raylib.DrawText("Raylib3D | PhrawgEngine", 10, 10, 20, Color.White);
 
                 Raylib.EndDrawing();
             }
@@ -62,5 +64,5 @@ namespace PhrawgEngine
             physicsServer.Dispose();
             Raylib.CloseWindow();
         }
-    }
+    } 
 }
