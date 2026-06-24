@@ -258,11 +258,13 @@ namespace PhrawgEngine
             // ----------------------------------------------------------------
             _character.LinearVelocity = new Vector3(_vx, _vy, _vz);
 
-            var updateSettings = new ExtendedUpdateSettings();
-            updateSettings.WalkStairsStepUp     = new Vector3(0f,  StairStepHeight,   0f);
-            updateSettings.StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f);
+            var updateSettings = new ExtendedUpdateSettings
+            {
+                WalkStairsStepUp     = new Vector3(0f,  StairStepHeight,   0f),
+                StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f),
+            };
 
-            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings, null, null, null, null);
+            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings);
 
             // Sync authoritative position back into the Transform every frame.
             _transform.Position = _character.Position;
