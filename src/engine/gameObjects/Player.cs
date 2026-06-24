@@ -262,7 +262,7 @@ namespace PhrawgEngine
             updateSettings.WalkStairsStepUp     = new Vector3(0f,  StairStepHeight,   0f);
             updateSettings.StickToFloorStepDown = new Vector3(0f, -FloorSnapDistance, 0f);
 
-            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings, null, null, null, null, physics.TempAllocator);
+            _character.ExtendedUpdate(dt, Vector3.Zero, updateSettings, null, null, null, null);
 
             // Sync authoritative position back into the Transform every frame.
             _transform.Position = _character.Position;
