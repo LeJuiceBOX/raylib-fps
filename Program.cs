@@ -8,10 +8,9 @@ namespace Raylib3D
     {
         static void Main(string[] args)
         {
-            Game Game = new Game();
-
-            Game.setup();
-            Game.run();
+            Game game = new Game();
+            game.Setup();
+            game.Run();
         }
     }
 }

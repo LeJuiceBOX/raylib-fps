@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="JoltPhysicsSharp" Version="2.15.0" />
     <PackageReference Include="Raylib-cs" Version="8.0.0" />
   </ItemGroup>
 

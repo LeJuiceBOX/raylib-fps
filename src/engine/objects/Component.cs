@@ -8,15 +8,8 @@ namespace PhrawgEngine
         {
             
         }
-
-        public void Load()
-        {
-            
-        }
-
-        public void Update(int dt)
-        {
-            
-        }
+        
+        public virtual void Load() { }
+        public virtual void Update(float dt) { }
     }
 }
