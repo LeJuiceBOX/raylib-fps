@@ -11,7 +11,7 @@ namespace PhrawgEngine
 
         public void Setup()
         {
-            Raylib.InitWindow(800, 450, "Raylib 3D | PhrawgEngine");
+            Raylib.InitWindow(1280, 720, "Raylib 3D | PhrawgEngine");
 
             camera = new Camera3D
             {
@@ -22,12 +22,12 @@ namespace PhrawgEngine
                 Projection = CameraProjection.Perspective
             };
 
-            var cam = workspace.AddGameObject<FreeCam>();
-            cam.MoveSpeed = 300f;
-            cam.MouseSensitivity = 0.002f;
+            //var cam = workspace.AddGameObject<FreeCam>();
+            //cam.MoveSpeed = 300f;
+            //cam.MouseSensitivity = 0.002f;
 
-            //var player = workspace.AddGameObject<Player>();
-            //player.SpawnPosition = new Vector3(0, 600f, 0); // somewhere above the floor 
+            var player = workspace.AddGameObject<Player>();
+            player.SpawnPosition = new Vector3(0, 600f, 0); // somewhere above the floor 
 
             Raylib.SetTargetFPS(60);
 

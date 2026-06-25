@@ -6,23 +6,40 @@ namespace PhrawgEngine
 {
     /// <summary>
     /// First-person player controller built on Jolt's <see cref="CharacterVirtual"/>.
-    /// CharacterVirtual is a virtual (non-body) character that does its own shape-cast
-    /// movement each frame, giving instant wall snap (no Baumgarte depenetration) and
-    /// built-in stair-stepping via <c>ExtendedUpdate</c>.
     ///
-    /// Horizontal movement mirrors Source 2 ground physics: velocity-based acceleration
-    /// with per-frame friction and reduced air control.  Gravity and jumping are managed
-    /// manually so they run in Hammer Units/s rather than relying on Jolt's gravity
-    /// (which would be in m/s²).
+    /// This class is intentionally thin: it owns the <see cref="CharacterVirtual"/> and
+    /// <see cref="Transform"/>, syncs post-collision velocity into <see cref="SourceMovement"/>
+    /// each tick, feeds the result back, and steps the character.  All movement math lives
+    /// in <see cref="SourceMovement"/>.
+    ///
+    /// Coordinate space: everything is in Hammer Units (HU).  1 HU = 1 engine unit.
+    /// No scale conversion is applied — map geometry is imported 1:1.
+    ///
+    /// ---- Stair stepping --------------------------------------------------------
+    /// Jolt's WalkStairs sub-step (inside ExtendedUpdate) works by:
+    ///   1. Casting the shape UP by WalkStairsStepUp.
+    ///   2. Moving horizontally by the current frame displacement.
+    ///   3. Casting the shape DOWN to land on the step surface.
+    ///
+    /// For this to succeed, LinearVelocity must be set to the *desired* velocity
+    /// (post-accel, pre-collision) BEFORE ExtendedUpdate is called, NOT to the
+    /// post-collision velocity from the previous frame.  Reading back the clipped
+    /// velocity and feeding it straight in is the classic mistake that causes the
+    /// character to stop dead at step faces.
+    ///
+    /// The solution: post-collision velocity is only used to inherit wall-slide and
+    /// ceiling cancellation for the *vertical* component (VY).  Horizontal (VX/VZ)
+    /// is owned entirely by SourceMovement and never overwritten by clipped results.
+    /// WalkStairs then always has a nonzero horizontal velocity to work with.
+    /// ---------------------------------------------------------------------------
     /// </summary>
     public class Player : GameObject
     {
-        // ---- Spawn ----------------------------------------------------------------
+        // ---- Spawn ---------------------------------------------------------------
 
         /// <summary>
-        /// World position the player spawns at.  Safe to set after
-        /// <see cref="Workspace.AddGameObject{T}"/> — CharacterVirtual is created on
-        /// the first physics tick, so setting this before then is always safe.
+        /// World position the player spawns at.  Safe to set before the first tick;
+        /// <see cref="CharacterVirtual"/> is created lazily on the first physics update.
         /// </summary>
         public Vector3 SpawnPosition
         {
@@ -33,57 +50,67 @@ namespace PhrawgEngine
                 if (_transform != null) _transform.Position = value;
             }
         }
-        private Vector3 _spawnPosition = new Vector3(0, 128f, 0);
+        private Vector3 _spawnPosition = new Vector3(0f, 128f, 0f);
 
         // ---- Movement config ----------------------------------------------------
 
-        /// <summary>All tunable movement constants. Change before the first tick.</summary>
+        /// <summary>All tunable movement constants.  Assign before the first tick.</summary>
         public PlayerMovementConfig Movement = PlayerMovementConfig.Default;
 
-        // ---- Private state -----------------------------------------------------
+        // ---- Private state ------------------------------------------------------
 
-        private CharacterVirtual? _character;
-        private Transform?        _transform;
+        private CharacterVirtual?  _character;
+        private Transform?         _transform;
         private FirstPersonCamera? _camera;
-        private bool              _charInitialized = false;
+        private SourceMovement?    _movement;
+        private bool               _charInitialized;
 
-        private float _vx, _vz;   // Horizontal velocity managed by Source movement math.
-        private float _vy;         // Vertical velocity managed manually (gravity + jump).
-        private bool  _isGrounded;
-
-        // -----------------------------------------------------------------------
+        // ---- Load ---------------------------------------------------------------
 
         public override void Load()
         {
             _transform          = AddComponent<Transform>();
             _transform.Position = _spawnPosition;
 
+            _movement = AddComponent<SourceMovement>();
+
             _camera = AddComponent<FirstPersonCamera>();
-            _camera.EyeHeight        = 64f;
             _camera.MouseSensitivity = 0.003f;
             _camera.InitFromCamera();
 
             Raylib.DisableCursor();
         }
 
+        // ---- CharacterVirtual init (lazy, first tick) ----------------------------
+
         private void InitCharacter(PhysicsServer physics)
         {
-            // Build a capsule that matches the original box hull (72 H × 32 W HU).
-            // CapsuleShape(halfHeightOfCylinder, radius): total height = 2*(H+R).
-            var capsule = new CapsuleShape(Movement.CapsuleHalfHeight, Movement.CapsuleRadius);
+            // Standing capsule.  Total height = 2 * (HalfHeight + Radius).
+            // HL2 standing hull: 72 H x 32 W HU → HalfHeight=20, Radius=16 → 2*(20+16)=72 ✓
+            //
+            // TODO: swap to CrouchCapsule when crouching (requires CharacterVirtual.SetShape
+            // or a rebuild — deferred until the wrapper exposes it).
+            var capsule = new CapsuleShape(
+                Movement.StandCapsuleHalfHeight,
+                Movement.StandCapsuleRadius);
 
             var settings = new CharacterVirtualSettings
             {
                 Shape                     = capsule,
                 Up                        = Vector3.UnitY,
-                MaxSlopeAngle             = MathF.PI / 4f,  // 45° max walkable slope
-                CharacterPadding          = 0.02f,           // thin skin to avoid tunnelling
+                MaxSlopeAngle             = MathF.PI / 4f,   // 45° walkable
+                CharacterPadding          = 0.02f,
                 PenetrationRecoverySpeed  = 1f,
-                PredictiveContactDistance = 2f,              // HU; look slightly ahead for contacts
+
+                // Larger predictive contact distance so the step face is detected
+                // before the capsule embeds in it.  At 2 HU (the original value)
+                // the contact resolves as a wall and WalkStairs never fires.
+                // Half the capsule radius (8 HU) gives reliable early detection
+                // without causing false contacts on open ground.
+                PredictiveContactDistance = Movement.StandCapsuleRadius * 0.5f,
+
                 BackFaceMode              = BackFaceMode.IgnoreBackFaces,
-                // Supporting volume: plane at the bottom of the lower sphere.
-                // Jolt convention: Plane(normal, D) where N·x = D → plane at y = -CapsuleRadius.
-                SupportingVolume          = new Plane(Vector3.UnitY, -Movement.CapsuleRadius),
+                SupportingVolume          = new Plane(Vector3.UnitY, -Movement.StandCapsuleRadius),
             };
 
             _character = new CharacterVirtual(
@@ -94,105 +121,61 @@ namespace PhrawgEngine
                 physics.PhysicsSystem);
         }
 
+        // ---- Update -------------------------------------------------------------
+
         public override void Update(float dt)
         {
-            // Lazy-init CharacterVirtual on the first physics tick.
+            // Lazy-init on the first physics tick.
             if (!_charInitialized && _transform != null)
             {
                 InitCharacter(Game.physicsServer);
                 _charInitialized = true;
             }
 
-            if (_character == null || _transform == null || _camera == null) return;
+            if (_character == null || _transform == null || _camera == null || _movement == null)
+                return;
 
             // ----------------------------------------------------------------
-            // 0. Inherit collision-corrected velocity from last frame.
-            //    CharacterVirtual clips LinearVelocity against surfaces it hit,
-            //    so reading back all three components handles both wall sliding
-            //    (X/Z zeroed into wall) and ceiling hits (Y zeroed when blocked).
-            // ----------------------------------------------------------------
-            Vector3 postCollision = _character.LinearVelocity;
-            _vx = postCollision.X;
-            _vy = postCollision.Y;
-            _vz = postCollision.Z;
-
-            // ----------------------------------------------------------------
-            // 1. Mouse look is handled by FirstPersonCamera component.
-            // ----------------------------------------------------------------
-
-            // ----------------------------------------------------------------
-            // 2. Ground detection — use CharacterVirtual's ground state.
-            //    OnGround      = walkable surface (≤ MaxSlopeAngle).
-            //    OnSteepGround = too steep to walk but still in contact.
-            //    InAir         = nothing below.
-            // ----------------------------------------------------------------
-            var groundState = _character.GroundState;
-            _isGrounded = groundState == GroundState.OnGround
-                       || groundState == GroundState.OnSteepGround;
-
-            if (_isGrounded && _vy < 0f) _vy = 0f;
-
-            // ----------------------------------------------------------------
-            // 3. Wish direction (horizontal plane only — pitch doesn't move you).
-            // ----------------------------------------------------------------
-            Vector3 fwd   = _camera.HorizontalForward;
-            Vector3 right = _camera.HorizontalRight;
-
-            Vector3 wish = Vector3.Zero;
-            if (Raylib.IsKeyDown(KeyboardKey.W)) wish += fwd;
-            if (Raylib.IsKeyDown(KeyboardKey.S)) wish -= fwd;
-            if (Raylib.IsKeyDown(KeyboardKey.A)) wish += right;
-            if (Raylib.IsKeyDown(KeyboardKey.D)) wish -= right;
-
-            float wishLen = wish.Length();
-            Vector3 wishDir = wishLen > 0f ? wish / wishLen : Vector3.Zero;
-            float maxSpeed  = Raylib.IsKeyDown(KeyboardKey.LeftShift) ? Movement.SprintSpeed : Movement.MaxSpeed;
-
-            // ----------------------------------------------------------------
-            // 4. Ground movement
-            // ----------------------------------------------------------------
-            if (_isGrounded)
-            {
-                if (Raylib.IsKeyDown(KeyboardKey.Space))
-                {
-                    // Skip friction on jump frame so bhop preserves horizontal speed.
-                    _vy         = Movement.JumpSpeed;
-                    _isGrounded = false;
-                    Accelerate(wishDir, maxSpeed, Movement.Acceleration, dt);
-                }
-                else
-                {
-                    ApplyFriction(dt);
-                    Accelerate(wishDir, maxSpeed, Movement.Acceleration, dt);
-                }
-            }
-            // ----------------------------------------------------------------
-            // 5. Air movement
-            // ----------------------------------------------------------------
-            else
-            {
-                Accelerate(wishDir, maxSpeed, Movement.AirAcceleration, dt);
-                _vy -= Movement.Gravity * dt;
-            }
-
-            // ----------------------------------------------------------------
-            // 6. Drive CharacterVirtual and step.
+            // 1. Inherit ONLY the vertical post-collision component from Jolt.
             //
-            //    We pass Vector3.Zero for gravity because we already applied it
-            //    to _vy above — letting CharacterVirtual apply gravity too would
-            //    double it.
+            //    Horizontal (VX/VZ) is intentionally NOT read back from
+            //    LinearVelocity here.  When the capsule hits the vertical face
+            //    of a step, Jolt zeros the horizontal component of LinearVelocity
+            //    to resolve the contact.  If we fed that back in, WalkStairs
+            //    would receive zero horizontal velocity and have no direction to
+            //    attempt the step-up — causing the player to stop dead.
             //
-            //    ExtendedUpdate (vs plain Update) also runs two sub-steps:
-            //      • StickToFloor  — snaps the character down FloorSnapDistance HU
-            //        so they stay grounded over small downward ledges.
-            //      • WalkStairs    — tries stepping up StairStepHeight HU when the
-            //        character is blocked horizontally but clear higher up, giving
-            //        smooth stair climbing without needing an explicit stair mesh.
+            //    Instead, VX/VZ are owned exclusively by SourceMovement and
+            //    persist across frames, carrying the last-desired horizontal
+            //    velocity into ExtendedUpdate so WalkStairs always has a valid
+            //    direction to work with.
             //
-            //    Null filter arguments mean "collide with everything", matching the
-            //    behaviour of NarrowPhaseQuery.CastRay with null filters elsewhere.
+            //    VY IS read back so that ceiling hits (Y clipped to zero) and
+            //    slope contacts are still correctly reflected.
             // ----------------------------------------------------------------
-            _character.LinearVelocity = new Vector3(_vx, _vy, _vz);
+            _movement.VY = _character.LinearVelocity.Y;
+
+            // ----------------------------------------------------------------
+            // 2. Run GMod/Source movement logic (wish dir, friction, accel,
+            //    jump, crouch, gravity, eye lerp).
+            // ----------------------------------------------------------------
+            _movement.ProcessMovement(dt, _character.GroundState, Movement, _camera);
+
+            // ----------------------------------------------------------------
+            // 3. Drive CharacterVirtual with the new velocity and step.
+            //
+            //    LinearVelocity is set to the *desired* velocity (post-accel,
+            //    pre-collision).  ExtendedUpdate then:
+            //      a) Runs a normal Update (shape-cast move, collision response).
+            //      b) WalkStairs: if horizontally blocked, casts UP by
+            //         WalkStairsStepUp, moves forward, casts DOWN to land.
+            //      c) StickToFloor: casts DOWN by StickToFloorStepDown to
+            //         maintain ground contact over small ledge drops.
+            //
+            //    Gravity is NOT passed (Vector3.Zero) — SourceMovement already
+            //    applied it to VY; passing it here would double it.
+            // ----------------------------------------------------------------
+            _character.LinearVelocity = new Vector3(_movement.VX, _movement.VY, _movement.VZ);
 
             var updateSettings = new ExtendedUpdateSettings
             {
@@ -200,41 +183,22 @@ namespace PhrawgEngine
                 StickToFloorStepDown = new Vector3(0f, -Movement.FloorSnapDistance, 0f),
             };
 
-            // ObjectLayer tells CharacterVirtual which layer this character occupies
-            // so the physics system's pair filter determines what it can collide with.
-            _character.ExtendedUpdate(dt, updateSettings, PhysicsServer.LayerMoving, Game.physicsServer.PhysicsSystem);
+            _character.ExtendedUpdate(
+                dt,
+                updateSettings,
+                PhysicsServer.LayerMoving,
+                Game.physicsServer.PhysicsSystem);
 
-            // Sync authoritative position back into the Transform every frame.
+            // ----------------------------------------------------------------
+            // 4. Sync authoritative position back into Transform.
+            // ----------------------------------------------------------------
             _transform.Position = _character.Position;
 
-            // Run component updates (including FirstPersonCamera) after position is finalised.
+            // ----------------------------------------------------------------
+            // 5. Run component updates (FirstPersonCamera reads CurrentEyeHeight
+            //    from SourceMovement, so order matters: movement before camera).
+            // ----------------------------------------------------------------
             base.Update(dt);
-        }
-
-        // ---- Source movement helpers ------------------------------------------
-
-        private void ApplyFriction(float dt)
-        {
-            float speed = MathF.Sqrt(_vx * _vx + _vz * _vz);
-            if (speed < 0.01f) { _vx = _vz = 0f; return; }
-
-            float control  = speed < Movement.StopSpeed ? Movement.StopSpeed : speed;
-            float drop     = control * Movement.Friction * dt;
-            float newSpeed = MathF.Max(speed - drop, 0f) / speed;
-
-            _vx *= newSpeed;
-            _vz *= newSpeed;
-        }
-
-        private void Accelerate(Vector3 wishDir, float wishSpeed, float accel, float dt)
-        {
-            float currentSpeed = _vx * wishDir.X + _vz * wishDir.Z;
-            float addSpeed     = wishSpeed - currentSpeed;
-            if (addSpeed <= 0f) return;
-
-            float accelSpeed = MathF.Min(accel * wishSpeed * dt, addSpeed);
-            _vx += accelSpeed * wishDir.X;
-            _vz += accelSpeed * wishDir.Z;
         }
     }
 }

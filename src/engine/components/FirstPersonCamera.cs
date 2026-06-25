@@ -5,14 +5,11 @@ namespace PhrawgEngine
 {
     /// <summary>
     /// Manages first-person mouse look and drives <see cref="Game.camera"/> each frame.
-    /// Owns yaw, pitch, eye height, and sensitivity. Add to any GameObject that
-    /// should control the player camera.
+    /// Eye height is read from <see cref="SourceMovement.CurrentEyeHeight"/> each tick so
+    /// that crouch lerp is automatically reflected without any extra wiring.
     /// </summary>
     public class FirstPersonCamera : Component
     {
-        /// <summary>Eye height above the owning Transform's Position in world units.</summary>
-        public float EyeHeight = 64f;
-
         /// <summary>Mouse sensitivity in radians per pixel.</summary>
         public float MouseSensitivity = 0.003f;
 
@@ -45,20 +42,30 @@ namespace PhrawgEngine
 
         public override void Update(float dt)
         {
+            // ----------------------------------------------------------------
+            // Mouse look
+            // ----------------------------------------------------------------
             Vector2 mouse = Raylib.GetMouseDelta();
             Yaw   += mouse.X * MouseSensitivity;
             Pitch -= mouse.Y * MouseSensitivity;
             Pitch  = Math.Clamp(Pitch, -1.55f, 1.55f);
 
+            // ----------------------------------------------------------------
+            // Eye position — driven by SourceMovement.CurrentEyeHeight so that
+            // crouch lerp is automatically reflected.
+            // ----------------------------------------------------------------
             var transform = Owner?.GetComponent<Transform>();
+            var movement  = Owner?.GetComponent<SourceMovement>();
             if (transform is null) return;
+
+            float eyeHeight = movement?.CurrentEyeHeight ?? 64f;
 
             Vector3 camFwd = new(
                 MathF.Cos(Pitch) * MathF.Cos(Yaw),
                 MathF.Sin(Pitch),
                 MathF.Cos(Pitch) * MathF.Sin(Yaw));
 
-            Vector3 eye = transform.Position + Vector3.UnitY * EyeHeight;
+            Vector3 eye      = transform.Position + Vector3.UnitY * eyeHeight;
             Game.camera.Position = eye;
             Game.camera.Target   = eye + camFwd;
         }
